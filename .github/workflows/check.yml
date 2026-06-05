@@ -1,0 +1,53 @@
+name: Stock check
+
+# Runs on a schedule and on manual trigger. State (seen_products.json) is
+# committed back to the repo so it persists between runs.
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes (GitHub may delay during peak load)
+  workflow_dispatch: {}
+
+# Allow the workflow to push the updated state file back to the repo.
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run notifier
+        env:
+          # Set these as repository secrets (Settings -> Secrets and variables
+          # -> Actions). Only the ones you use need to exist.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python stock_notifier.py
+
+      - name: Persist state
+        run: |
+          git config user.name "stock-bot"
+          git config user.email "stock-bot@users.noreply.github.com"
+          git add seen_products.json
+          if git diff --cached --quiet; then
+            echo "No state change."
+          else
+            git commit -m "Update seen products [skip ci]"
+            git push
+          fi
